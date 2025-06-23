@@ -1,0 +1,18 @@
+.ghost-text {
+  color: #888;
+  opacity: 0.6;
+  font-style: italic;
+  pointer-events: none;
+}
+.ghost-text:hover {
+  opacity: 0.6;
+}
+/* .ghost-text::after {
+  content: attr(data-content);
+  opacity: 0.4;
+  color: gray;
+  font-style: italic;
+  pointer-events: none;
+  font-family: inherit;
+} */
+
