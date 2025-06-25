@@ -12,7 +12,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage/>} />
-        <Route path="/editor" element={<CodeEditor/>} />
+        <Route path="/editor/:project/:topic/:language" element={<CodeEditor/>} />
         <Route path="*" element={<PageNotFound/>} />
         <Route path="/speech" element={<Dictaphone/>} />
       </Routes>

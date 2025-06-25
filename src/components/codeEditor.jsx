@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Editor from "@monaco-editor/react";
+import { useParams } from "react-router-dom";
 import Dictaphone from "./speech";
 // import { debounce, set } from "lodash";
 import axios from "axios";
@@ -58,6 +59,8 @@ function debounce(func, delay) {
   };
 }
 
+
+
 const CodeEditor = () => {
   const [language, setLanguage] = useState("javascript");
   const [theme, setTheme] = useState("vs-dark");
@@ -86,13 +89,68 @@ const CodeEditor = () => {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const llmModels = [];
+  const { project, topic, urllanguage } = useParams();
 
-  // Load from state management (no localStorage)
-  //   useEffect(() => {
-  //     setCode(defaultCodes[language] || "// Start coding...");
-  //   }, [language]);
 
-  // Auto-save functionality
+// Key format: projects -> topic -> name -> code
+  const storageKey = `code_${project}_${topic}_${urllanguage}`;
+
+  // Load code from localStorage
+  useEffect(() => {
+    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+    const foundProject = savedProjects.find((p) => p.name === project);
+    const foundTopic = foundProject?.topics.find((t) => t.name === topic && t.language === language);
+
+    if (foundTopic?.code) {
+      setCode(foundTopic.code);
+    } else {
+      setCode("// Start coding here...");
+    }
+  }, [project, topic, language]);
+
+  // Auto-save code to localStorage (project->topic->code)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+      const updatedProjects = savedProjects.map((p) => {
+        if (p.name === project) {
+          return {
+            ...p,
+            topics: p.topics.map((t) =>
+              t.name === topic && t.language === language ? { ...t, code } : t
+            ),
+          };
+        }
+        return p;
+      });
+      localStorage.setItem("projects", JSON.stringify(updatedProjects));
+    }, 1000); // auto-save every second
+
+    return () => clearInterval(interval);
+  }, [code, project, topic, language]);
+
+const saveCode = () => {
+  const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+
+  const updatedProjects = savedProjects.map((p) => {
+    if (p.name === project) {
+      return {
+        ...p,
+        topics: p.topics.map((t) =>
+          t.name === topic && t.language === language
+            ? { ...t, code: code } // ✅ Save code in the topic
+            : t
+        ),
+      };
+    }
+    return p;
+  });
+
+  localStorage.setItem("projects", JSON.stringify(updatedProjects));
+  alert("Code saved manually!");
+};
+
+
   useEffect(() => {
     if (autoSave) {
       const timer = setTimeout(() => {
@@ -102,6 +160,14 @@ const CodeEditor = () => {
       return () => clearTimeout(timer);
     }
   }, [code, autoSave]);
+
+  useEffect(() => {
+  setTimeout(()=>{
+    setSuggestion("");
+  },15000)
+
+},[suggestion,setSuggestion]);
+
 
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -364,10 +430,6 @@ const CodeEditor = () => {
     };
   }, []);
 
-  const saveCode = () => {
-    // Instead of localStorage, we'll just show a success message
-    setOutput(`✅ Code saved successfully for ${language}!`);
-  };
 
   const downloadCode = () => {
     const file = new Blob([code], { type: "text/plain" });

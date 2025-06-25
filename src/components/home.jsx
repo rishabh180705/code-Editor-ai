@@ -1,7 +1,15 @@
-
-import React, { useState } from "react";
-import { FaJava, FaJsSquare, FaPython, FaEdit, FaSave, FaMicrophone } from "react-icons/fa";
+import React, { useEffect, useState } from "react";
+import {
+  FaJava,
+  FaJsSquare,
+  FaPython,
+  FaEdit,
+  FaSave,
+  FaTrash,
+  FaMicrophone,
+} from "react-icons/fa";
 import { SiCplusplus } from "react-icons/si";
+import { useNavigate } from "react-router-dom";
 
 const languageIcon = (lang) => {
   switch (lang) {
@@ -23,60 +31,87 @@ const HomePage = () => {
   const [projectName, setProjectName] = useState("");
   const [selectedProjectIndex, setSelectedProjectIndex] = useState(null);
   const [topicName, setTopicName] = useState("");
-  const [language, setLanguage] = useState("cpp");
+  const [language, setLanguage] = useState("");
 
   const [editingProjectIndex, setEditingProjectIndex] = useState(null);
   const [editingTopicIndex, setEditingTopicIndex] = useState(null);
   const [editProjectName, setEditProjectName] = useState("");
   const [editTopicName, setEditTopicName] = useState("");
   const [editLanguage, setEditLanguage] = useState("");
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+    setProjects(savedProjects);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("projects", JSON.stringify(projects));
+  }, [projects]);
 
   const createProject = () => {
-    if (!projectName.trim()) return;
-    setProjects([...projects, { name: projectName, topics: [] }]);
+    const name = projectName.trim();
+    if (!name) return;
+    setProjects([...projects, { name, topics: [] }]);
     setProjectName("");
   };
 
   const addTopicToProject = () => {
     if (selectedProjectIndex === null || !topicName.trim()) return;
-    const updatedProjects = [...projects];
-    updatedProjects[selectedProjectIndex].topics.push({ name: topicName, language });
-    setProjects(updatedProjects);
+    const updated = [...projects];
+    updated[selectedProjectIndex].topics.push({
+      name: topicName.trim(),
+      language,
+      code:"",
+    });
+    setProjects(updated);
     setTopicName("");
-    setLanguage("cpp");
+    setLanguage("");
   };
 
   const saveProjectEdit = (index) => {
     const updated = [...projects];
-    updated[index].name = editProjectName;
+    updated[index].name = editProjectName.trim();
     setProjects(updated);
     setEditingProjectIndex(null);
   };
 
   const saveTopicEdit = (pIndex, tIndex) => {
     const updated = [...projects];
-    updated[pIndex].topics[tIndex].name = editTopicName;
+    updated[pIndex].topics[tIndex].name = editTopicName.trim();
     updated[pIndex].topics[tIndex].language = editLanguage;
     setProjects(updated);
     setEditingTopicIndex(null);
   };
 
+  const deleteProject = (index) => {
+    const updated = [...projects];
+    updated.splice(index, 1);
+    setProjects(updated);
+  };
+
+  const deleteTopic = (pIndex, tIndex) => {
+    const updated = [...projects];
+    updated[pIndex].topics.splice(tIndex, 1);
+    setProjects(updated);
+  };
+
   return (
     <div className="min-h-screen bg-gray-950 text-white font-sans flex flex-col">
-      {/* Navbar */}
       <header className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-emerald-400">Code Deck</h1>
-        <div className="flex gap-4">
-          <button className="text-white hover:text-emerald-400">Login</button>
-          <button className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded">
-            Sign Up
-          </button>
-        </div>
+        <h1 className="text-2xl font-bold text-emerald-400"> Code{"</"}HaCk{"\\>"}</h1>
+        <button className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded">
+          <a
+            href="https://github.com/rishabh180705/code-Editor-ai"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Github
+          </a>
+        </button>
       </header>
 
-      {/* Main */}
       <main className="flex flex-1 overflow-hidden divide-x divide-gray-800">
-        {/* Left */}
         <div className="w-1/2 p-8 overflow-y-auto">
           <div className="mb-10 text-center">
             <FaMicrophone className="mx-auto text-4xl text-emerald-400 mb-4 animate-pulse" />
@@ -110,9 +145,7 @@ const HomePage = () => {
                 defaultValue=""
                 className="mb-3 w-full px-4 py-2 rounded bg-gray-800 border border-gray-700"
               >
-                <option value="" disabled>
-                  Select project
-                </option>
+                <option value="" disabled>Select project</option>
                 {projects.map((proj, idx) => (
                   <option key={idx} value={idx}>
                     {proj.name}
@@ -130,6 +163,7 @@ const HomePage = () => {
                 onChange={(e) => setLanguage(e.target.value)}
                 className="w-full px-4 py-2 rounded bg-gray-800 border border-gray-700 mb-3"
               >
+                <option value="">Select language</option>
                 <option value="cpp">C++</option>
                 <option value="java">Java</option>
                 <option value="javascript">JavaScript</option>
@@ -145,7 +179,6 @@ const HomePage = () => {
           </div>
         </div>
 
-        {/* Right */}
         <div className="w-1/2 p-8 overflow-y-auto">
           <h2 className="text-2xl font-semibold mb-6">📂 My Projects</h2>
           {projects.length === 0 ? (
@@ -162,19 +195,24 @@ const HomePage = () => {
                         className="px-3 py-1 rounded bg-gray-800 border border-gray-700"
                       />
                       <button onClick={() => saveProjectEdit(pIndex)}>
-                        <FaSave className="text-green-400" />
+                        <FaSave className="text-green-400 cursor-pointer" />
                       </button>
                     </>
                   ) : (
                     <>
                       <h3 className="text-xl font-bold text-emerald-400">{proj.name}</h3>
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setEditProjectName(proj.name);
                           setEditingProjectIndex(pIndex);
+                          setEditingTopicIndex(null);
                         }}
                       >
-                        <FaEdit className="text-gray-400 hover:text-white" />
+                        <FaEdit className="text-gray-400 hover:text-white cursor-pointer" />
+                      </button>
+                      <button onClick={() => deleteProject(pIndex)}>
+                        <FaTrash className="text-red-500 hover:text-red-600 cursor-pointer" />
                       </button>
                     </>
                   )}
@@ -185,7 +223,12 @@ const HomePage = () => {
                     {proj.topics.map((topic, tIndex) => (
                       <div
                         key={tIndex}
-                        className="bg-gray-800 border border-gray-700 rounded px-4 py-3 flex items-center gap-4"
+                        className="bg-gray-800 border border-gray-700 rounded px-4 py-3 flex items-center gap-4 cursor-pointer hover:bg-gray-700 transition"
+                        onClick={() => {
+                          const projectNameEncoded = encodeURIComponent(proj.name.trim());
+                          const topicNameEncoded = encodeURIComponent(topic.name.trim());
+                          navigate(`/editor/${projectNameEncoded}/${topicNameEncoded}/${topic.language}`);
+                        }}
                       >
                         {editingTopicIndex === `${pIndex}-${tIndex}` ? (
                           <>
@@ -204,25 +247,34 @@ const HomePage = () => {
                               <option value="javascript">JavaScript</option>
                               <option value="python">Python</option>
                             </select>
-                            <button onClick={() => saveTopicEdit(pIndex, tIndex)}>
-                              <FaSave className="text-green-400" />
+                            <button onClick={(e) => {
+                              e.stopPropagation();
+                              saveTopicEdit(pIndex, tIndex);
+                            }}>
+                              <FaSave className="text-green-400 cursor-pointer" />
                             </button>
                           </>
                         ) : (
                           <>
                             {languageIcon(topic.language)}
-                            <div>
+                            <div className="flex-grow">
                               <p className="font-semibold">{topic.name}</p>
                               <p className="text-sm text-gray-400">Language: {topic.language}</p>
                             </div>
-                            <button
-                              onClick={() => {
-                                setEditTopicName(topic.name);
-                                setEditLanguage(topic.language);
-                                setEditingTopicIndex(`${pIndex}-${tIndex}`);
-                              }}
-                            >
-                              <FaEdit className="text-gray-400 hover:text-white ml-auto" />
+                            <button onClick={(e) => {
+                              e.stopPropagation();
+                              setEditTopicName(topic.name);
+                              setEditLanguage(topic.language);
+                              setEditingTopicIndex(`${pIndex}-${tIndex}`);
+                              setEditingProjectIndex(null);
+                            }}>
+                              <FaEdit className="text-gray-400 hover:text-white cursor-pointer" />
+                            </button>
+                            <button onClick={(e) => {
+                              e.stopPropagation();
+                              deleteTopic(pIndex, tIndex);
+                            }}>
+                              <FaTrash className="text-red-500 hover:text-red-600 cursor-pointer" />
                             </button>
                           </>
                         )}
@@ -237,8 +289,15 @@ const HomePage = () => {
           )}
         </div>
       </main>
+    </div>
+  );
+};
 
-      {/* Footer */}
+export default HomePage;
+
+
+{
+  /* Footer
       <footer className="bg-gray-900 border-t border-gray-800 px-6 py-8 text-sm text-gray-400">
         <div className="max-w-6xl mx-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
           <div>
@@ -278,9 +337,5 @@ const HomePage = () => {
         <div className="text-center mt-6 text-xs text-gray-500">
           © 2024 CodeSpace. All rights reserved.
         </div>
-      </footer>
-    </div>
-  );
-};
-
-export default HomePage;
+      </footer> */
+}
