@@ -17,7 +17,11 @@ const Dictaphone = ({ setCode }) => {
   // Detect when microphone turns OFF
   useEffect(() => {
     if (wasListening.current && !listening && transcript.trim() !== "") {
+
+      
+
       setCode((prev) => prev + `\n// Voice: ${transcript}`);
+
         resetTranscript(); // Optionally reset after appending
     }
     wasListening.current = listening;

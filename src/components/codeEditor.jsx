@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Editor from "@monaco-editor/react";
 import Dictaphone from "./speech";
-import { debounce } from "lodash";
+// import { debounce, set } from "lodash";
 import axios from "axios";
 const apiKey = import.meta.env.VITE_OPENROUTER_KEY;
 import "./codeEditor.css";
@@ -48,6 +48,16 @@ const languages = [
   { value: "java", label: "Java", icon: "☕" },
 ];
 
+function debounce(func, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      func(...args);
+    }, delay);
+  };
+}
+
 const CodeEditor = () => {
   const [language, setLanguage] = useState("javascript");
   const [theme, setTheme] = useState("vs-dark");
@@ -65,10 +75,17 @@ const CodeEditor = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [suggestion, setSuggestion] = useState("");
   const [ghostText, setGhostText] = useState("");
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [key, setkey] = useState("");
+  const [model, setmodel] = useState("");
+  const [Ai, setAi] = useState(false);
+  const debounceTimerRef = useRef(null);
+  const isRequestingRef = useRef(false);
+  const lastRequestRef = useRef({ code: "", position: null });
 
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
+  const llmModels = [];
 
   // Load from state management (no localStorage)
   //   useEffect(() => {
@@ -99,6 +116,27 @@ const CodeEditor = () => {
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveCode);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, runCode);
+    editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyD,
+      downloadCode
+    );
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, copyCode);
+    editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF,
+      findAndReplace
+    );
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ, undoAction);
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, redoAction);
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG, () => {
+      // setIsFullscreen(!isFullscreen);
+      toggleFullscreen();
+    });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyM, () => {
+      setShowSidebar(!showSidebar);
+    });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyH, () => {
+      setShowSettings(!showSettings);
+    });
 
     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
       noSemanticValidation: false,
@@ -111,35 +149,170 @@ const CodeEditor = () => {
     });
   };
 
+  const debounceInlineSuggest = useCallback(
+    debounce(async (code, position) => {
+      // Prevent multiple requests
+      if (isRequestingRef.current) {
+        console.log("Request already in progress, skipping...");
+        return;
+      }
+
+      // Check if this is the same request as before
+      const currentRequest = {
+        code,
+        position: position ? `${position.lineNumber}:${position.column}` : null,
+      };
+      const lastRequest = lastRequestRef.current;
+
+      if (
+        lastRequest.code === currentRequest.code &&
+        lastRequest.position === currentRequest.position
+      ) {
+        console.log("Same request as before, skipping...");
+        return;
+      }
+
+      if (!code || !position || !Ai) {
+        console.log("Missing required data or AI disabled, skipping...");
+        return;
+      }
+
+      // Update last request
+      lastRequestRef.current = currentRequest;
+      isRequestingRef.current = true;
+
+      const codeUntilCursor = code
+        .split("\n")
+        .slice(0, position.lineNumber)
+        .join("\n");
+
+      const prompt = `Continue this code and return only valid code (no explanation) and return only next code of line and missing code do not return query code and duplicate code as it used for suggestins in my editor and if code is correct do not return any thing:\n${codeUntilCursor}`;
+
+      try {
+        console.log("Making AI request at position:", position);
+
+        const res = await axios.post(
+          "https://openrouter.ai/api/v1/chat/completions",
+          {
+            model: "thudm/glm-4-32b:free",
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.4,
+            max_tokens: 40,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": "http://localhost:5173",
+              "X-Title": "CodeSpace Pro",
+            },
+          }
+        );
+
+        const suggestionText = res.data.choices[0].message.content.trim();
+
+        // Only update if we're still on the same position
+        if (editorRef.current && editorRef.current.getPosition()) {
+          const currentPos = editorRef.current.getPosition();
+          if (
+            currentPos.lineNumber === position.lineNumber &&
+            currentPos.column === position.column
+          ) {
+            setGhostText(suggestionText);
+            applyGhostText(suggestionText, position);
+            setSuggestion(suggestionText);
+            setOutput(`AI Suggestion: ${suggestionText}`);
+            console.log("Ghost text applied:", suggestionText);
+          } else {
+            console.log("Position changed, discarding suggestion");
+          }
+        }
+      } catch (error) {
+        console.error(
+          "Inline suggestion error:",
+          error?.response?.data || error.message
+        );
+        setOutput(`Error: ${error.message}`);
+      } finally {
+        isRequestingRef.current = false;
+      }
+    }, 2500),
+    [apiKey, Ai] // Dependencies for useCallback
+  );
+
   useEffect(() => {
     if (!editorRef.current || !monacoRef.current) return;
 
-    editorRef.current.addCommand(monacoRef.current.KeyCode.Tab, () => {
-      if (ghostText) {
-        const currentPosition = editorRef.current.getPosition();
-        editorRef.current.executeEdits("", [
-          {
-            range: new monacoRef.current.Range(
-              currentPosition.lineNumber,
-              currentPosition.column,
-              currentPosition.lineNumber,
-              currentPosition.column
-            ),
-            text: ghostText,
-            forceMoveMarkers: true,
-          },
-        ]);
-        setGhostText("");
-        editorRef.current.focus();
-      }
-    });
-  }, [ghostText]);
+    const editor = editorRef.current;
+    const monacoInstance = monacoRef.current;
 
-  const applyGhostText = (text, position) => {
+    // Alternative approach using addAction for better control
+    const tabAction = editor.addAction({
+      id: "apply-ghost-text",
+      label: "Apply Ghost Text",
+      keybindings: [monacoInstance.KeyCode.Tab],
+      run: () => {
+        if (ghostText) {
+          const pos = editor.getPosition();
+          editor.executeEdits("", [
+            {
+              range: new monacoInstance.Range(
+                pos.lineNumber,
+                pos.column,
+                pos.lineNumber,
+                pos.column
+              ),
+              text: ghostText,
+              forceMoveMarkers: true,
+            },
+          ]);
+          setGhostText("");
+          setSuggestion("");
+          editor.focus();
+          return null;
+        }
+      },
+    });
+
+    const ctrlSpaceAction = editor.addAction({
+      id: "trigger-ai-suggestion",
+      label: "Trigger AI Suggestion",
+      keybindings: [
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Space,
+      ],
+      run: () => {
+        const pos = editor.getPosition();
+        const currentCode = editor.getValue();
+        if (Ai && pos && currentCode) {
+          console.log("Manual trigger - Ctrl+Space pressed");
+          debounceInlineSuggest(currentCode, pos);
+        }
+        return null;
+      },
+    });
+
+    // Cleanup actions on unmount
+    return () => {
+      if (tabAction) tabAction.dispose();
+      if (ctrlSpaceAction) ctrlSpaceAction.dispose();
+    };
+  }, [ghostText, debounceInlineSuggest]);
+
+  const applyGhostText = useCallback((text, position) => {
     if (!editorRef.current || !monacoRef.current) return;
 
+    // Clear previous decorations first
     editorRef.current.deltaDecorations(
-      [], // Clear previous decorations
+      editorRef.current
+        .getModel()
+        .getAllDecorations()
+        .map((d) => d.id),
+      []
+    );
+
+    // Apply new ghost text decoration
+    editorRef.current.deltaDecorations(
+      [],
       [
         {
           range: new monacoRef.current.Range(
@@ -158,53 +331,38 @@ const CodeEditor = () => {
         },
       ]
     );
-  };
+  }, []);
 
-  const debounceInlineSuggest = debounce(async (code, position) => {
-    const codeUntilCursor = code
-      .split("\n")
-      .slice(0, position.lineNumber)
-      .join("\n");
+  const handleChange = useCallback(
+    (value) => {
+      setCode(value || "");
 
-    const prompt = `Continue the following code and give code only for correct syntax \n${codeUntilCursor}`;
+      // Clear ghost text when user types
+      if (ghostText) {
+        setGhostText("");
+      }
 
-    try {
-      const res = await axios.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          model: "thudm/glm-4-32b:free", // or any available model
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.4,
-          max_tokens: 40,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`, // your OpenRouter API key
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost:5173", // optional but helps OpenRouter track usage
-            "X-Title": "CodeSpace Pro", // optional title for analytics
-          },
+      // Only trigger AI suggestion if AI is enabled and editor is ready
+      if (editorRef.current && Ai && value) {
+        const position = editorRef.current.getPosition();
+        if (position) {
+          console.log("Code changed, triggering AI suggestion");
+          debounceInlineSuggest(value, position);
         }
-      );
+      }
+    },
+    [ghostText, Ai, debounceInlineSuggest]
+  );
 
-      const suggestionText = res.data.choices[0].message.content.trim();
-      setGhostText(suggestionText);
-      applyGhostText(suggestionText, position);
-      console.log("Suggesting ghost text at:", position, suggestionText);
-    } catch (err) {
-      console.error(
-        "Ghost suggestion failed:",
-        err?.response?.data || err.message
-      );
-    }
-  }, 3000);
-
-  const handleChange = (value) => {
-    setCode(value || "");
-    if (editorRef.current) {
-      debounceInlineSuggest(value || "", editorRef.current.getPosition());
-    }
-  };
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      isRequestingRef.current = false;
+    };
+  }, []);
 
   const saveCode = () => {
     // Instead of localStorage, we'll just show a success message
@@ -484,7 +642,7 @@ const CodeEditor = () => {
                       value={fontSize}
                       onChange={(e) => setFontSize(Number(e.target.value))}
                     >
-                      {[10, 12, 14, 16, 18, 20, 24, 28].map((size) => (
+                      {[14, 16, 18, 20, 24, 28, 30, 32, 34].map((size) => (
                         <option key={size} value={size}>
                           {size}px
                         </option>
@@ -537,7 +695,7 @@ const CodeEditor = () => {
           <div className="flex items-center space-x-3">
             <FaFileCode className="text-2xl text-blue-500" />
             <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">
-              CodeSpace
+              Code{"</"}HaCk{"\\>"}
             </h1>
           </div>
 
@@ -564,7 +722,7 @@ const CodeEditor = () => {
             {!showSidebar && (
               <button
                 onClick={() => setShowSidebar(!showSidebar)}
-                className={`p-2 rounded-lg ${
+                className={`p-2 rounded-lg  ${
                   theme === "vs-dark" || theme === "hc-black"
                     ? "hover:bg-gray-700 text-gray-300"
                     : "hover:bg-gray-200 text-gray-600"
@@ -629,19 +787,44 @@ const CodeEditor = () => {
                 />
                 <span>Auto Save</span>
               </label>
+
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={Ai}
+                  onChange={(e) => setAi(e.target.checked)}
+                  className="rounded"
+                />
+                <span>Ai</span>
+              </label>
+              <div className="col-span-2  ">
+                <label className="flex items-center space-x-2">LLM Model</label>
+                <select className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:border-gray-700 dark:text-white"></select>
+              </div>
+
+              <label className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  value={key}
+                  onChange={(e) => setkey(e.target.value)}
+                  className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue
+                  dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                  placeholder="Enter your OpenRouter API Key"
+                />
+              </label>
             </div>
           </div>
         )}
 
         {/* Editor Panel */}
         <div
-          className={`relative rounded-lg border shadow-xl mb-4 ${
+          className={`relative rounded-lg border shadow-xl mb-4  className="ghost-text"${
             theme === "vs-dark" || theme === "hc-black"
               ? "border-gray-700"
               : "border-gray-300"
           }`}
         >
-          <div className="absolute bottom-2 right-2 z-10">
+          <div className="absolute bottom-3 right-2 z-10">
             <button
               onClick={toggleFullscreen}
               className={`p-2 rounded-lg text-xs ${
@@ -655,7 +838,7 @@ const CodeEditor = () => {
             </button>
           </div>
 
-          <Editor
+          <Editor 
             height={isFullscreen ? "calc(100vh - 140px)" : "67vh"}
             theme={theme}
             language={language}
@@ -688,34 +871,21 @@ const CodeEditor = () => {
               autoClosingQuotes: "always",
               autoClosingOvertype: "always",
               autoSurround: { language },
-              autoIndent: "advanced",
               selectionHighlight: true,
               overviewRulerLanes: 3,
               overviewRulerBorder: true,
               renderLineHighlightOnlyWhenFocus: false,
-              renderLineHighlight: "gutter",
               renderIndentGuides: true,
               renderFinalNewline: true,
               renderLineNumbers: "on",
               renderValidationDecorations: "editable",
               renderWhitespace: "boundary",
               renderControlCharacters: true,
-              renderIndentGuides: true,
-              renderLineHighlight: "all",
-              renderLineHighlightOnlyWhenFocus: false,
-              renderLineHighlight: "gutter",
-              renderFinalNewline: true,
-              renderLineNumbers: "on",
-              decreaseIndentPattern: RegExp,
-              increaseIndentPattern: RegExp,
-              indentNextLinePattern: RegExp,
-              unIndentedLinePattern: RegExp,
-              quickSuggestions: true,
               suggestOnTriggerCharacters: true,
 
               wordWrap: wordWrap ? "on" : "off",
               lineNumbers: lineNumbers ? "on" : "off",
-              renderWhitespace: "selection",
+
               cursorStyle: "line",
               cursorBlinking: "blink",
               smoothScrolling: true,
@@ -763,38 +933,8 @@ const CodeEditor = () => {
             }}
           />
 
-          {/* <Editor
-            height={isFullscreen ? "calc(100vh - 120px)" : "70vh"}
-            theme={theme}
-            language={language}
-            value={code}
-            onChange={(value) => handleChange(value)}
-            onMount={handleEditorDidMount}
-            options={{
-              fontSize,
-              fontFamily:
-                "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
-              minimap: { enabled: minimap },
-              automaticLayout: true,
-              formatOnType: true,
-              formatOnPaste: true,
-              autoIndent: "full",
-              insertSpaces: true,
-              tabSize: 2,
-              renderLineHighlight: "all",
-              tabCompletion: "on",
-              wordWrap: wordWrap ? "on" : "off",
-              lineNumbers: lineNumbers ? "on" : "off",
-              cursorStyle: "line",
-              folding: true,
-              guides: { bracketPairs: "active" },
-              bracketPairColorization: { enabled: true },
-              suggest: { showMethods: true, showFunctions: true },
-            }}
-          /> */}
-
           {suggestion && (
-            <div className="bg-gray-100 text-sm p-3 rounded mt-3 shadow">
+            <div className="bg-gray-100 text-sm p-3 rounded mt-3 shadow text-black">
               💡 <strong>AI Suggestion:</strong>
               <br />
               {suggestion}

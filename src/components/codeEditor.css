@@ -1,18 +1,13 @@
 .ghost-text {
-  color: #888;
-  opacity: 0.6;
+  color: #fa0505 !important;
+  opacity: 0.9;
   font-style: italic;
+  font-size: larger;
+  position: absolute;
   pointer-events: none;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 1;
+  transition: opacity 0.3s ease-in-out;
 }
-.ghost-text:hover {
-  opacity: 0.6;
-}
-/* .ghost-text::after {
-  content: attr(data-content);
-  opacity: 0.4;
-  color: gray;
-  font-style: italic;
-  pointer-events: none;
-  font-family: inherit;
-} */
-
