@@ -20,7 +20,19 @@ const Dictaphone = ({ setCode }) => {
   // Convert transcript to code using OpenRouter API
   const convertSpeechToCode = async (spokenText) => {
     try {
-      const prompt = `Convert the following text  into code with correct syntax do as ask return only code if you get nothing related to code return send only code description and do not sent output as it is using in code edtior as feature do what is asking for only (no explanation, just code):\n"${spokenText}"`;
+      const prompt = `You are an AI code generator embedded inside a coding editor. Follow the user's request exactly. 
+
+Instructions:
+- Convert the following input into clean, syntactically correct code.
+- If multiple languages are possible, choose the most suitable one (e.g., based on common usage).
+- Return only code. Do not include comments, explanations, output samples, or markdown formatting.
+- If the input is not a code request, return a single-line comment explaining what it is (e.g., "// This is not a code-related request").
+- Always format the code properly with proper indentation.
+- Avoid placeholders or assumptions not present in the prompt.
+
+Input:
+"${spokenText}"`;
+
 
       const res = await axios.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -28,7 +40,7 @@ const Dictaphone = ({ setCode }) => {
           model: "thudm/glm-4-32b:free", // free model
           messages: [{ role: "user", content: prompt }],
           temperature: 0.3,
-          max_tokens: 100,
+          max_tokens: 300,
         },
         {
           headers: {

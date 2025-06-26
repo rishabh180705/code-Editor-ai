@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import Editor from "@monaco-editor/react";
 import { useParams } from "react-router-dom";
 import Dictaphone from "./speech";
+// import CodeRunner from "./runCode";
 // import { debounce, set } from "lodash";
 import axios from "axios";
 const apiKey = import.meta.env.VITE_OPENROUTER_KEY;
@@ -59,10 +60,8 @@ function debounce(func, delay) {
   };
 }
 
-
-
 const CodeEditor = () => {
-  const [language, setLanguage] = useState("javascript");
+  const [language, setLanguage] = useState("cpp");
   const [theme, setTheme] = useState("vs-dark");
   const [fontSize, setFontSize] = useState(16);
   const [code, setCode] = useState("// Start coding...");
@@ -79,95 +78,18 @@ const CodeEditor = () => {
   const [suggestion, setSuggestion] = useState("");
   const [ghostText, setGhostText] = useState("");
   const [showSidebar, setShowSidebar] = useState(false);
-  const [key, setkey] = useState("");
-  const [model, setmodel] = useState("");
-  const [Ai, setAi] = useState(false);
+  const [apiKey, setApiKey] = useState(""); // Fixed variable name
+  const [model, setModel] = useState(""); // Fixed variable name
+  const [aiEnabled, setAiEnabled] = useState(false); // Fixed variable name
+
   const debounceTimerRef = useRef(null);
   const isRequestingRef = useRef(false);
   const lastRequestRef = useRef({ code: "", position: null });
-
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
-  const llmModels = [];
+  
+  const llmModels = []; // You can populate this with available models
   const { project, topic, urllanguage } = useParams();
-
-
-// Key format: projects -> topic -> name -> code
-  const storageKey = `code_${project}_${topic}_${urllanguage}`;
-
-  // Load code from localStorage
-  useEffect(() => {
-    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
-    const foundProject = savedProjects.find((p) => p.name === project);
-    const foundTopic = foundProject?.topics.find((t) => t.name === topic && t.language === language);
-
-    if (foundTopic?.code) {
-      setCode(foundTopic.code);
-    } else {
-      setCode("// Start coding here...");
-    }
-  }, [project, topic, language]);
-
-  // Auto-save code to localStorage (project->topic->code)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
-      const updatedProjects = savedProjects.map((p) => {
-        if (p.name === project) {
-          return {
-            ...p,
-            topics: p.topics.map((t) =>
-              t.name === topic && t.language === language ? { ...t, code } : t
-            ),
-          };
-        }
-        return p;
-      });
-      localStorage.setItem("projects", JSON.stringify(updatedProjects));
-    }, 1000); // auto-save every second
-
-    return () => clearInterval(interval);
-  }, [code, project, topic, language]);
-
-const saveCode = () => {
-  const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
-
-  const updatedProjects = savedProjects.map((p) => {
-    if (p.name === project) {
-      return {
-        ...p,
-        topics: p.topics.map((t) =>
-          t.name === topic && t.language === language
-            ? { ...t, code: code } // ✅ Save code in the topic
-            : t
-        ),
-      };
-    }
-    return p;
-  });
-
-  localStorage.setItem("projects", JSON.stringify(updatedProjects));
-  alert("Code saved manually!");
-};
-
-
-  useEffect(() => {
-    if (autoSave) {
-      const timer = setTimeout(() => {
-        // Auto-save logic would go here
-        console.log("Auto-saved");
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [code, autoSave]);
-
-  useEffect(() => {
-  setTimeout(()=>{
-    setSuggestion("");
-  },15000)
-
-},[suggestion,setSuggestion]);
-
 
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -180,23 +102,15 @@ const saveCode = () => {
       });
     });
 
+    // Add keyboard shortcuts
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveCode);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, runCode);
-    editor.addCommand(
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyD,
-      downloadCode
-    );
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyD, downloadCode);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, copyCode);
-    editor.addCommand(
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF,
-      findAndReplace
-    );
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, findAndReplace);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ, undoAction);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, redoAction);
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG, () => {
-      // setIsFullscreen(!isFullscreen);
-      toggleFullscreen();
-    });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG, toggleFullscreen);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyM, () => {
       setShowSidebar(!showSidebar);
     });
@@ -204,6 +118,7 @@ const saveCode = () => {
       setShowSettings(!showSettings);
     });
 
+    // Configure TypeScript/JavaScript settings
     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
       noSemanticValidation: false,
       noSyntaxValidation: false,
@@ -215,35 +130,119 @@ const saveCode = () => {
     });
   };
 
+  // Set language from URL parameter
+  useEffect(() => {
+    if (urllanguage) {
+      setLanguage(urllanguage);
+    }
+  }, [urllanguage]);
+
+  // Load code from localStorage
+  useEffect(() => {
+    if (!project || !topic) return;
+
+    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+    const selectedProjectIndex = savedProjects.findIndex(p => p.name === project);
+
+    if (selectedProjectIndex !== -1) {
+      const foundProject = savedProjects[selectedProjectIndex];
+      let foundTopic = foundProject.topics?.find(
+        t => t.name === topic && t.language === language
+      );
+
+      if (!foundTopic) {
+        // Create new topic if it doesn't exist
+        if (!foundProject.topics) foundProject.topics = [];
+        foundProject.topics.push({
+          name: topic.trim(),
+          language,
+          code: "// Start coding here...",
+        });
+        localStorage.setItem("projects", JSON.stringify(savedProjects));
+        foundTopic = foundProject.topics.find(
+          t => t.name === topic && t.language === language
+        );
+      }
+
+      setCode(foundTopic?.code || "// Start coding here...");
+    }
+  }, [project, topic, language]);
+
+  // Auto-save code to localStorage
+  useEffect(() => {
+    if (!project || !topic || !code) return;
+
+    const interval = setInterval(() => {
+      const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+      const updatedProjects = savedProjects.map(p => {
+        if (p.name === project) {
+          return {
+            ...p,
+            topics: p.topics?.map(t =>
+              t.name === topic && t.language === language 
+                ? { ...t, code } 
+                : t
+            ) || []
+          };
+        }
+        return p;
+      });
+      localStorage.setItem("projects", JSON.stringify(updatedProjects));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [code, project, topic, language]);
+
+  const saveCode = useCallback(() => {
+    if (!project || !topic) return;
+
+    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+    const updatedProjects = savedProjects.map(p => {
+      if (p.name === project) {
+        return {
+          ...p,
+          topics: p.topics?.map(t =>
+            t.name === topic && t.language === language
+              ? { ...t, code }
+              : t
+          ) || []
+        };
+      }
+      return p;
+    });
+
+    localStorage.setItem("projects", JSON.stringify(updatedProjects));
+    alert("Code saved manually!");
+  }, [code, project, topic, language]);
+
+  // Clear suggestion after timeout
+  useEffect(() => {
+    if (suggestion) {
+      const timer = setTimeout(() => {
+        setSuggestion("");
+      }, 15000);
+      return () => clearTimeout(timer);
+    }
+  }, [suggestion]);
+
   const debounceInlineSuggest = useCallback(
     debounce(async (code, position) => {
-      // Prevent multiple requests
-      if (isRequestingRef.current) {
-        console.log("Request already in progress, skipping...");
+      if (isRequestingRef.current || !code || !position || !aiEnabled || !apiKey) {
         return;
       }
 
-      // Check if this is the same request as before
       const currentRequest = {
         code,
         position: position ? `${position.lineNumber}:${position.column}` : null,
       };
-      const lastRequest = lastRequestRef.current;
 
       if (
-        lastRequest.code === currentRequest.code &&
-        lastRequest.position === currentRequest.position
+        lastRequestRef.current.code === currentRequest.code &&
+        lastRequestRef.current.position === currentRequest.position
       ) {
-        console.log("Same request as before, skipping...");
         return;
       }
 
-      if (!code || !position || !Ai) {
-        console.log("Missing required data or AI disabled, skipping...");
-        return;
-      }
-
-      // Update last request
       lastRequestRef.current = currentRequest;
       isRequestingRef.current = true;
 
@@ -252,11 +251,9 @@ const saveCode = () => {
         .slice(0, position.lineNumber)
         .join("\n");
 
-      const prompt = `Continue this code and return only valid code (no explanation) and return only next code of line and missing code do not return query code and duplicate code as it used for suggestins in my editor and if code is correct do not return any thing:\n${codeUntilCursor}`;
+      const prompt = `Continue this code and return only valid code (no explanation) and return only next code of line and missing code do not return query code and duplicate code as it used for suggestions in my editor and if code is correct do not return anything:\n${codeUntilCursor}`;
 
       try {
-        console.log("Making AI request at position:", position);
-
         const res = await axios.post(
           "https://openrouter.ai/api/v1/chat/completions",
           {
@@ -269,7 +266,7 @@ const saveCode = () => {
             headers: {
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
-              "HTTP-Referer": "http://localhost:5173",
+              "HTTP-Referer": window.location.origin,
               "X-Title": "CodeSpace Pro",
             },
           }
@@ -277,7 +274,6 @@ const saveCode = () => {
 
         const suggestionText = res.data.choices[0].message.content.trim();
 
-        // Only update if we're still on the same position
         if (editorRef.current && editorRef.current.getPosition()) {
           const currentPos = editorRef.current.getPosition();
           if (
@@ -288,46 +284,35 @@ const saveCode = () => {
             applyGhostText(suggestionText, position);
             setSuggestion(suggestionText);
             setOutput(`AI Suggestion: ${suggestionText}`);
-            console.log("Ghost text applied:", suggestionText);
-          } else {
-            console.log("Position changed, discarding suggestion");
           }
         }
       } catch (error) {
-        console.error(
-          "Inline suggestion error:",
-          error?.response?.data || error.message
-        );
+        console.error("Inline suggestion error:", error?.response?.data || error.message);
         setOutput(`Error: ${error.message}`);
       } finally {
         isRequestingRef.current = false;
       }
     }, 2500),
-    [apiKey, Ai] // Dependencies for useCallback
+    [apiKey, aiEnabled]
   );
 
+  // Setup editor actions for Tab and Ctrl+Space
   useEffect(() => {
     if (!editorRef.current || !monacoRef.current) return;
 
     const editor = editorRef.current;
-    const monacoInstance = monacoRef.current;
+    const monaco = monacoRef.current;
 
-    // Alternative approach using addAction for better control
     const tabAction = editor.addAction({
       id: "apply-ghost-text",
       label: "Apply Ghost Text",
-      keybindings: [monacoInstance.KeyCode.Tab],
+      keybindings: [monaco.KeyCode.Tab],
       run: () => {
         if (ghostText) {
           const pos = editor.getPosition();
           editor.executeEdits("", [
             {
-              range: new monacoInstance.Range(
-                pos.lineNumber,
-                pos.column,
-                pos.lineNumber,
-                pos.column
-              ),
+              range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
               text: ghostText,
               forceMoveMarkers: true,
             },
@@ -343,82 +328,65 @@ const saveCode = () => {
     const ctrlSpaceAction = editor.addAction({
       id: "trigger-ai-suggestion",
       label: "Trigger AI Suggestion",
-      keybindings: [
-        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Space,
-      ],
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space],
       run: () => {
         const pos = editor.getPosition();
         const currentCode = editor.getValue();
-        if (Ai && pos && currentCode) {
-          console.log("Manual trigger - Ctrl+Space pressed");
+        if (aiEnabled && pos && currentCode) {
           debounceInlineSuggest(currentCode, pos);
         }
         return null;
       },
     });
 
-    // Cleanup actions on unmount
     return () => {
-      if (tabAction) tabAction.dispose();
-      if (ctrlSpaceAction) ctrlSpaceAction.dispose();
+      tabAction?.dispose();
+      ctrlSpaceAction?.dispose();
     };
-  }, [ghostText, debounceInlineSuggest]);
+  }, [ghostText, debounceInlineSuggest, aiEnabled]);
 
   const applyGhostText = useCallback((text, position) => {
     if (!editorRef.current || !monacoRef.current) return;
 
-    // Clear previous decorations first
-    editorRef.current.deltaDecorations(
-      editorRef.current
-        .getModel()
-        .getAllDecorations()
-        .map((d) => d.id),
-      []
-    );
+    // Clear previous decorations
+    const model = editorRef.current.getModel();
+    const decorations = model.getAllDecorations().map(d => d.id);
+    editorRef.current.deltaDecorations(decorations, []);
 
     // Apply new ghost text decoration
-    editorRef.current.deltaDecorations(
-      [],
-      [
-        {
-          range: new monacoRef.current.Range(
-            position.lineNumber,
-            position.column,
-            position.lineNumber,
-            position.column
-          ),
-          options: {
-            after: {
-              contentText: text,
-              inlineClassName: "ghost-text",
-            },
-            showIfCollapsed: true,
+    editorRef.current.deltaDecorations([], [
+      {
+        range: new monacoRef.current.Range(
+          position.lineNumber,
+          position.column,
+          position.lineNumber,
+          position.column
+        ),
+        options: {
+          after: {
+            contentText: text,
+            inlineClassName: "ghost-text",
           },
+          showIfCollapsed: true,
         },
-      ]
-    );
+      },
+    ]);
   }, []);
 
-  const handleChange = useCallback(
-    (value) => {
-      setCode(value || "");
+  const handleChange = useCallback((value) => {
+    setCode(value || "");
 
-      // Clear ghost text when user types
-      if (ghostText) {
-        setGhostText("");
-      }
+    if (ghostText) {
+      setGhostText("");
+    }
 
-      // Only trigger AI suggestion if AI is enabled and editor is ready
-      if (editorRef.current && Ai && value) {
-        const position = editorRef.current.getPosition();
-        if (position) {
-          console.log("Code changed, triggering AI suggestion");
-          debounceInlineSuggest(value, position);
-        }
+    if (editorRef.current && aiEnabled && value) {
+      const position = editorRef.current.getPosition();
+      if (position) {
+        debounceInlineSuggest(value, position);
       }
-    },
-    [ghostText, Ai, debounceInlineSuggest]
-  );
+    }
+  }, [ghostText, aiEnabled, debounceInlineSuggest]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -430,15 +398,14 @@ const saveCode = () => {
     };
   }, []);
 
-
-  const downloadCode = () => {
+  const downloadCode = useCallback(() => {
     const file = new Blob([code], { type: "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(file);
     a.download = `code.${getFileExtension(language)}`;
     a.click();
     URL.revokeObjectURL(a.href);
-  };
+  }, [code, language]);
 
   const getFileExtension = (lang) => {
     const extensions = {
@@ -447,70 +414,112 @@ const saveCode = () => {
       python: "py",
       cpp: "cpp",
       java: "java",
+      c: "c",
+      csharp: "cs",
+      php: "php",
+      ruby: "rb",
+      go: "go",
+      rust: "rs",
     };
     return extensions[lang] || "txt";
   };
 
   const runCode = async () => {
-    if (language !== "javascript") {
-      setOutput(
-        "⚠️ Code execution is only supported for JavaScript in the browser environment."
-      );
-      return;
-    }
-
     setIsRunning(true);
     setOutput("🚀 Running code...");
 
-    try {
-      const log = [];
-      const originalLog = console.log;
-      const originalError = console.error;
-
-      console.log = (...args) => log.push("📝 " + args.join(" "));
-      console.error = (...args) => log.push("❌ " + args.join(" "));
-
-      // Add a small delay to show the running state
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // eslint-disable-next-line no-eval
-      eval(code);
-
-      setOutput(
-        log.length > 0
-          ? log.join("\n")
-          : "✅ Code executed successfully (no output)"
-      );
-
-      console.log = originalLog;
-      console.error = originalError;
-    } catch (err) {
-      setOutput(`❌ Runtime Error:\n${err.message}`);
-    } finally {
+    if (!code || code.trim().startsWith("// Start coding")) {
+      setOutput("⚠️ Please write some code before running.");
       setIsRunning(false);
+      return;
+    }
+
+    if (language !== "javascript") {
+      try {
+        const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            language,
+            version: "*",
+            files: [
+              {
+                name: `main.${getFileExtension(language)}`,
+                content: code,
+              },
+            ],
+            stdin: input,
+          }),
+        });
+
+        const result = await response.json();
+        setOutput(result.run?.output || result.run?.stderr || "⚠️ No output.");
+      } catch (err) {
+        setOutput(`❌ Error executing code: ${err.message}`);
+      } finally {
+        setIsRunning(false);
+      }
+    } else {
+      // JavaScript execution
+      try {
+        const log = [];
+        const originalLog = console.log;
+        const originalError = console.error;
+
+        console.log = (...args) => log.push("📝 " + args.join(" "));
+        console.error = (...args) => log.push("❌ " + args.join(" "));
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Create a safe execution context
+        const func = new Function(code);
+        func();
+
+        setOutput(
+          log.length > 0
+            ? log.join("\n")
+            : "✅ Code executed successfully (no output)"
+        );
+
+        console.log = originalLog;
+        console.error = originalError;
+      } catch (err) {
+        setOutput(`❌ Runtime Error:\n${err.message}`);
+      } finally {
+        setIsRunning(false);
+      }
     }
   };
 
-  const copyCode = () => {
+  // Placeholder functions for missing methods
+  const copyCode = useCallback(() => {
     navigator.clipboard.writeText(code);
-    setOutput("📋 Code copied to clipboard!");
-  };
+    alert("Code copied to clipboard!");
+  }, [code]);
 
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-  };
+  // const findAndReplace = useCallback(() => {
+  //   if (editorRef.current) {
+  //     editorRef.current.getAction('actions.find').run();
+  //   }
+  // }, []);
 
-  const undoAction = () => {
+  const undoAction = useCallback(() => {
     if (editorRef.current) {
-      editorRef.current.trigger("keyboard", "undo", null);
+      editorRef.current.trigger('keyboard', 'undo', null);
     }
-  };
+  }, []);
 
-  const redoAction = () => {
+  const redoAction = useCallback(() => {
     if (editorRef.current) {
-      editorRef.current.trigger("keyboard", "redo", null);
+      editorRef.current.trigger('keyboard', 'redo', null);
     }
-  };
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen(prev => !prev);
+  }, []);
 
   const findAndReplace = () => {
     if (editorRef.current) {
@@ -573,6 +582,9 @@ const saveCode = () => {
                     <FaPlay />
                     <span>{isRunning ? "Running..." : "Run Code"}</span>
                   </button>
+                  {/* {language !== "javascript" && (
+                    <CodeRunner/>
+                  )} */}
 
                   <button
                     onClick={saveCode}
@@ -900,11 +912,11 @@ const saveCode = () => {
             </button>
           </div>
 
-          <Editor 
+          <Editor
             height={isFullscreen ? "calc(100vh - 140px)" : "67vh"}
             theme={theme}
             language={language}
-            value={code}
+             defaultValue={code}
             onChange={(value) => {
               handleChange(value);
             }}
