@@ -77,7 +77,7 @@ const CodeEditor = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [suggestion, setSuggestion] = useState("");
   const [ghostText, setGhostText] = useState("");
-  const [showSidebar, setShowSidebar] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(true);
   const [apiKey, setApiKey] = useState(""); // Fixed variable name
   const [model, setModel] = useState(""); // Fixed variable name
   const [aiEnabled, setAiEnabled] = useState(false); // Fixed variable name
@@ -428,11 +428,11 @@ const CodeEditor = () => {
     setIsRunning(true);
     setOutput("🚀 Running code...");
 
-    if (!code || code.trim().startsWith("// Start coding")) {
-      setOutput("⚠️ Please write some code before running.");
-      setIsRunning(false);
-      return;
-    }
+    // if (!code || code.trim().startsWith("// Start coding")) {
+    //   setOutput("⚠️ Please write some code before running.");
+    //   setIsRunning(false);
+    //   return;
+    // }
 
     if (language !== "javascript") {
       try {
@@ -865,8 +865,8 @@ const CodeEditor = () => {
               <label className="flex items-center space-x-2">
                 <input
                   type="checkbox"
-                  checked={Ai}
-                  onChange={(e) => setAi(e.target.checked)}
+                  checked={aiEnabled}
+                  onChange={(e) => setAiEnabled(e.target.checked)}
                   className="rounded"
                 />
                 <span>Ai</span>
@@ -879,7 +879,7 @@ const CodeEditor = () => {
               <label className="flex items-center space-x-2">
                 <input
                   type="text"
-                  value={key}
+                  value={apiKey}
                   onChange={(e) => setkey(e.target.value)}
                   className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue
                   dark:bg-gray-800 dark:border-gray-700 dark:text-white"
@@ -916,7 +916,7 @@ const CodeEditor = () => {
             height={isFullscreen ? "calc(100vh - 140px)" : "67vh"}
             theme={theme}
             language={language}
-             defaultValue={code}
+             value={code}
             onChange={(value) => {
               handleChange(value);
             }}
