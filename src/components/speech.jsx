@@ -1,29 +1,36 @@
 
-import React, { useEffect, useRef } from "react";
+import React, { use, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import SpeechRecognition, {
   useSpeechRecognition,
 } from "react-speech-recognition";
-const apiKey = import.meta.env.VITE_OPENROUTER_KEY;
+// const apiKey = import.meta.env.VITE_OPENROUTER_KEY;
 
-const Dictaphone = ({ setCode }) => {
+const Dictaphone = ({ setCode,apikey,setOutput,language }) => {
   const {
     transcript,
     listening,
     resetTranscript,
     browserSupportsSpeechRecognition,
   } = useSpeechRecognition();
+  const [loading,setLoading] = useState(false);
 
   const wasListening = useRef(false);
 
 
   // Convert transcript to code using OpenRouter API
   const convertSpeechToCode = async (spokenText) => {
+    setLoading(true);
+   setOutput("🔄  converting speech to code...");
+      
     try {
+      
+     
+
       const prompt = `You are an AI code generator embedded inside a coding editor. Follow the user's request exactly. 
 
 Instructions:
-- Convert the following input into clean, syntactically correct code.
+- Convert the following input into clean, syntactically correct code in "${language}".
 - If multiple languages are possible, choose the most suitable one (e.g., based on common usage).
 - Return only code. Do not include comments, explanations, output samples, or markdown formatting.
 - If the input is not a code request, return a single-line comment explaining what it is (e.g., "// This is not a code-related request").
@@ -44,7 +51,7 @@ Input:
         },
         {
           headers: {
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apikey}`,
             "Content-Type": "application/json",
             "HTTP-Referer": "http://localhost:5173", // Optional
             "X-Title": "VoiceToCode Editor",
@@ -54,8 +61,14 @@ Input:
 
       const aiCode = res.data.choices[0].message.content.trim();
       setCode((prev) => prev + "\n" + aiCode);
+      setOutput(`✅ Code generated from: "${spokenText}"\n\n${aiCode}`);
     } catch (err) {
       console.error("AI conversion failed:", err?.response?.data || err.message);
+      setOutput(`❌ Error converting speech to code: ${err?.response?.data?.error || err.message}`);
+    }
+    finally {
+      setLoading(false);
+      
     }
   };
 

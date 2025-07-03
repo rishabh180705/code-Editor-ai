@@ -1,13 +1,16 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, use } from "react";
 import Editor from "@monaco-editor/react";
 import { useParams } from "react-router-dom";
 import Dictaphone from "./speech";
-// import CodeRunner from "./runCode";
 // import { debounce, set } from "lodash";
 import axios from "axios";
-const apiKey = import.meta.env.VITE_OPENROUTER_KEY;
+// const apiKey = import.meta.env.VITE_OPENROUTER_KEY;
 import "./codeEditor.css";
+import { SiCplusplus, SiTypescript } from "react-icons/si";
 import {
+   FaJava,
+  FaJsSquare,
+  FaPython,
   FaDownload,
   FaPlay,
   FaSave,
@@ -36,19 +39,30 @@ import { RxCross1 } from "react-icons/rx";
 import { GiHamburgerMenu } from "react-icons/gi";
 
 const themes = [
-  { value: "vs-dark", label: "Dark", icon: FaMoon },
-  { value: "light", label: "Light", icon: FaSun },
-  { value: "hc-black", label: "High Contrast Dark", icon: FaEye },
-  { value: "hc-light", label: "High Contrast Light", icon: FaEyeSlash },
+  { value: "vs-dark", label: "Dark", icon: <FaMoon/> },
+  { value: "light", label: "Light", icon: <FaSun/> },
+  { value: "hc-black", label: "High Contrast Dark", icon: <FaEye/>, },
+  { value: "hc-light", label: "High Contrast Light", icon: <FaEyeSlash/>, },
 ];
 
 const languages = [
-  { value: "javascript", label: "JavaScript", icon: "🟨" },
-  { value: "typescript", label: "TypeScript", icon: "🔷" },
-  { value: "python", label: "Python", icon: "🐍" },
-  { value: "cpp", label: "C++", icon: "⚡" },
-  { value: "java", label: "Java", icon: "☕" },
+  { value: "javascript", label: "JavaScript", icon: <FaJsSquare/> },
+  { value: "typescript", label: "TypeScript", icon: <SiTypescript/> },
+  { value: "python", label: "Python", icon: <FaPython/> },
+  { value: "cpp", label: "C++", icon:  (< SiCplusplus/>) },
+  { value: "java", label: "Java", icon: <FaJava/> },
 ];
+const models=[
+  { value: "thudm/glm-4-32b:free", label: "GLM-4 32B Free", icon: FaCode },
+  {value: "openrouter/cypher-alpha:free", label: "Cypher Alpha Free", icon: FaCode},
+  {value: "moonshotai/kimi-dev-72b:free", label: "Kimi Dev 72B Free", icon: FaCode},
+  {value:"mistralai/devstral-small:free", label: "DevStral Small Free", icon: FaCode},
+  {value:"thudm/glm-z1-32b:free", label: "GLM-Z1 32B Free", icon: FaCode},
+{ value:"cognitivecomputations/dolphin3.0-mistral-24b:free", label: "Dolphin 3.0 Mistral 24B Free", icon: FaCode},
+
+
+
+]
 
 function debounce(func, delay) {
   let timer;
@@ -61,7 +75,7 @@ function debounce(func, delay) {
 }
 
 const CodeEditor = () => {
-  const [language, setLanguage] = useState("cpp");
+  const [language, setLanguage] = useState("javascript");
   const [theme, setTheme] = useState("vs-dark");
   const [fontSize, setFontSize] = useState(16);
   const [code, setCode] = useState("// Start coding...");
@@ -77,19 +91,118 @@ const CodeEditor = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [suggestion, setSuggestion] = useState("");
   const [ghostText, setGhostText] = useState("");
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [apiKey, setApiKey] = useState(""); // Fixed variable name
-  const [model, setModel] = useState(""); // Fixed variable name
-  const [aiEnabled, setAiEnabled] = useState(false); // Fixed variable name
-
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [apikey, setApikey] = useState("");
+  const [model, setmodel] = useState("thudm/glm-4-32b:free");
+  const [Ai, setAi] = useState(false);
   const debounceTimerRef = useRef(null);
   const isRequestingRef = useRef(false);
   const lastRequestRef = useRef({ code: "", position: null });
+
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
-  
-  const llmModels = []; // You can populate this with available models
+  const llmModels = [];
   const { project, topic, urllanguage } = useParams();
+
+  // Key format: projects -> topic -> name -> code
+  const storageKey = `code_${project}_${topic}_${urllanguage}`;
+
+  useEffect(() => {
+    setLanguage(urllanguage || "javascript");
+   const key=(localStorage.getItem("apiKey")) || "";
+   if(key){
+    setApikey(key)
+   }
+
+  },[]);
+
+  // Load code from localStorage
+  useEffect(() => {
+    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+    const foundProject = savedProjects.find((p) => p.name === project);
+    const foundTopic = foundProject?.topics.find(
+      (t) => t.name === topic && t.language === urllanguage
+    );
+
+    if (foundTopic?.code) {
+      setCode(foundTopic.code);
+    } else {
+      setCode("// Start coding here...");
+    }
+  }, [project, topic, language]);
+
+  // Auto-save code to localStorage (project->topic->code)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+      const updatedProjects = savedProjects.map((p) => {
+        if (p.name === project) {
+          return {
+            ...p,
+            topics: p.topics.map((t) =>
+              t.name === topic && t.language === language ? { ...t, code } : t
+            ),
+          };
+        }
+        return p;
+      });
+      localStorage.setItem("projects", JSON.stringify(updatedProjects));
+    }, 1000); // auto-save every second
+
+    return () => clearInterval(interval);
+  }, [code, project, topic, language]);
+
+  const saveCode = () => {
+    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
+
+    const updatedProjects = savedProjects.map((p) => {
+      if (p.name === project) {
+        return {
+          ...p,
+          topics: p.topics.map((t) =>
+            t.name === topic && t.language === language
+              ? { ...t, code: code } // ✅ Save code in the topic
+              : t
+          ),
+        };
+      }
+      return p;
+    });
+
+    localStorage.setItem("projects", JSON.stringify(updatedProjects));
+    alert("Code saved manually!");
+  };
+
+  useEffect(() => {
+    if (autoSave) {
+      const timer = setTimeout(() => {
+        // Auto-save logic would go here
+        console.log("Auto-saved");
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [code, autoSave]);
+
+  function applyAi() { 
+    if (apikey) {
+      setAi(!Ai);
+      if (!Ai) {
+        setOutput("AI suggestions enabled. Press Ctrl+Space to trigger.");
+      } else {
+        setOutput("AI suggestions disabled.");
+        setGhostText("");
+        setSuggestion("");
+      }
+    } else {
+      alert("Please set your open-router API key in settings to use AI features.");
+    }
+  }
+
+  useEffect(() => {
+    setTimeout(() => {
+      setSuggestion("");
+    }, 15000);
+  }, [suggestion, setSuggestion]);
 
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -102,15 +215,25 @@ const CodeEditor = () => {
       });
     });
 
-    // Add keyboard shortcuts
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveCode);
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, runCode);
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyD, downloadCode);
+    // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, () => {
+    //   runCode();
+    // });
+    editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyD,
+      downloadCode
+    );
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, copyCode);
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, findAndReplace);
+    editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF,
+      findAndReplace
+    );
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ, undoAction);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, redoAction);
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG, toggleFullscreen);
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG, () => {
+      // setIsFullscreen(!isFullscreen);
+      toggleFullscreen();
+    });
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyM, () => {
       setShowSidebar(!showSidebar);
     });
@@ -118,7 +241,6 @@ const CodeEditor = () => {
       setShowSettings(!showSettings);
     });
 
-    // Configure TypeScript/JavaScript settings
     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
       noSemanticValidation: false,
       noSyntaxValidation: false,
@@ -130,119 +252,35 @@ const CodeEditor = () => {
     });
   };
 
-  // Set language from URL parameter
-  useEffect(() => {
-    if (urllanguage) {
-      setLanguage(urllanguage);
-    }
-  }, [urllanguage]);
-
-  // Load code from localStorage
-  useEffect(() => {
-    if (!project || !topic) return;
-
-    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
-    const selectedProjectIndex = savedProjects.findIndex(p => p.name === project);
-
-    if (selectedProjectIndex !== -1) {
-      const foundProject = savedProjects[selectedProjectIndex];
-      let foundTopic = foundProject.topics?.find(
-        t => t.name === topic && t.language === language
-      );
-
-      if (!foundTopic) {
-        // Create new topic if it doesn't exist
-        if (!foundProject.topics) foundProject.topics = [];
-        foundProject.topics.push({
-          name: topic.trim(),
-          language,
-          code: "// Start coding here...",
-        });
-        localStorage.setItem("projects", JSON.stringify(savedProjects));
-        foundTopic = foundProject.topics.find(
-          t => t.name === topic && t.language === language
-        );
-      }
-
-      setCode(foundTopic?.code || "// Start coding here...");
-    }
-  }, [project, topic, language]);
-
-  // Auto-save code to localStorage
-  useEffect(() => {
-    if (!project || !topic || !code) return;
-
-    const interval = setInterval(() => {
-      const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
-      const updatedProjects = savedProjects.map(p => {
-        if (p.name === project) {
-          return {
-            ...p,
-            topics: p.topics?.map(t =>
-              t.name === topic && t.language === language 
-                ? { ...t, code } 
-                : t
-            ) || []
-          };
-        }
-        return p;
-      });
-      localStorage.setItem("projects", JSON.stringify(updatedProjects));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [code, project, topic, language]);
-
-  const saveCode = useCallback(() => {
-    if (!project || !topic) return;
-
-    const savedProjects = JSON.parse(localStorage.getItem("projects")) || [];
-    const updatedProjects = savedProjects.map(p => {
-      if (p.name === project) {
-        return {
-          ...p,
-          topics: p.topics?.map(t =>
-            t.name === topic && t.language === language
-              ? { ...t, code }
-              : t
-          ) || []
-        };
-      }
-      return p;
-    });
-
-    localStorage.setItem("projects", JSON.stringify(updatedProjects));
-    alert("Code saved manually!");
-  }, [code, project, topic, language]);
-
-  // Clear suggestion after timeout
-  useEffect(() => {
-    if (suggestion) {
-      const timer = setTimeout(() => {
-        setSuggestion("");
-      }, 15000);
-      return () => clearTimeout(timer);
-    }
-  }, [suggestion]);
-
   const debounceInlineSuggest = useCallback(
     debounce(async (code, position) => {
-      if (isRequestingRef.current || !code || !position || !aiEnabled || !apiKey) {
+      // Prevent multiple requests
+      if (isRequestingRef.current) {
+        console.log("Request already in progress, skipping...");
         return;
       }
 
+      // Check if this is the same request as before
       const currentRequest = {
         code,
         position: position ? `${position.lineNumber}:${position.column}` : null,
       };
+      const lastRequest = lastRequestRef.current;
 
       if (
-        lastRequestRef.current.code === currentRequest.code &&
-        lastRequestRef.current.position === currentRequest.position
+        lastRequest.code === currentRequest.code &&
+        lastRequest.position === currentRequest.position
       ) {
+        console.log("Same request as before, skipping...");
         return;
       }
 
+      if (!code || !position || !Ai) {
+        console.log("Missing required data or AI disabled, skipping...");
+        return;
+      }
+
+      // Update last request
       lastRequestRef.current = currentRequest;
       isRequestingRef.current = true;
 
@@ -251,22 +289,24 @@ const CodeEditor = () => {
         .slice(0, position.lineNumber)
         .join("\n");
 
-      const prompt = `Continue this code and return only valid code (no explanation) and return only next code of line and missing code do not return query code and duplicate code as it used for suggestions in my editor and if code is correct do not return anything:\n${codeUntilCursor}`;
+      const prompt = `Continue this code and return only valid code (no explanation) and return only next code of line and missing code do not return query code and duplicate code as it used for suggestins in my editor and if code is correct do not return any thing:\n${codeUntilCursor}`;
 
       try {
+        console.log("Making AI request at position:", position);
+
         const res = await axios.post(
           "https://openrouter.ai/api/v1/chat/completions",
           {
-            model: "thudm/glm-4-32b:free",
+            model: `${model}`,
             messages: [{ role: "user", content: prompt }],
             temperature: 0.4,
             max_tokens: 40,
           },
           {
             headers: {
-              Authorization: `Bearer ${apiKey}`,
+              Authorization: `Bearer ${apikey}`,
               "Content-Type": "application/json",
-              "HTTP-Referer": window.location.origin,
+              "HTTP-Referer": "http://localhost:5173",
               "X-Title": "CodeSpace Pro",
             },
           }
@@ -274,6 +314,7 @@ const CodeEditor = () => {
 
         const suggestionText = res.data.choices[0].message.content.trim();
 
+        // Only update if we're still on the same position
         if (editorRef.current && editorRef.current.getPosition()) {
           const currentPos = editorRef.current.getPosition();
           if (
@@ -284,35 +325,46 @@ const CodeEditor = () => {
             applyGhostText(suggestionText, position);
             setSuggestion(suggestionText);
             setOutput(`AI Suggestion: ${suggestionText}`);
+            console.log("Ghost text applied:", suggestionText);
+          } else {
+            console.log("Position changed, discarding suggestion");
           }
         }
       } catch (error) {
-        console.error("Inline suggestion error:", error?.response?.data || error.message);
+        console.error(
+          "Inline suggestion error:",
+          error?.response?.data || error.message
+        );
         setOutput(`Error: ${error.message}`);
       } finally {
         isRequestingRef.current = false;
       }
     }, 2500),
-    [apiKey, aiEnabled]
+    [apikey, Ai] // Dependencies for useCallback
   );
 
-  // Setup editor actions for Tab and Ctrl+Space
   useEffect(() => {
     if (!editorRef.current || !monacoRef.current) return;
 
     const editor = editorRef.current;
-    const monaco = monacoRef.current;
+    const monacoInstance = monacoRef.current;
 
+    // Alternative approach using addAction for better control
     const tabAction = editor.addAction({
       id: "apply-ghost-text",
       label: "Apply Ghost Text",
-      keybindings: [monaco.KeyCode.Tab],
+      keybindings: [monacoInstance.KeyCode.Tab],
       run: () => {
         if (ghostText) {
           const pos = editor.getPosition();
           editor.executeEdits("", [
             {
-              range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+              range: new monacoInstance.Range(
+                pos.lineNumber,
+                pos.column,
+                pos.lineNumber,
+                pos.column
+              ),
               text: ghostText,
               forceMoveMarkers: true,
             },
@@ -328,65 +380,82 @@ const CodeEditor = () => {
     const ctrlSpaceAction = editor.addAction({
       id: "trigger-ai-suggestion",
       label: "Trigger AI Suggestion",
-      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space],
+      keybindings: [
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Space,
+      ],
       run: () => {
         const pos = editor.getPosition();
         const currentCode = editor.getValue();
-        if (aiEnabled && pos && currentCode) {
+        if (Ai && pos && currentCode) {
+          console.log("Manual trigger - Ctrl+Space pressed");
           debounceInlineSuggest(currentCode, pos);
         }
         return null;
       },
     });
 
+    // Cleanup actions on unmount
     return () => {
-      tabAction?.dispose();
-      ctrlSpaceAction?.dispose();
+      if (tabAction) tabAction.dispose();
+      if (ctrlSpaceAction) ctrlSpaceAction.dispose();
     };
-  }, [ghostText, debounceInlineSuggest, aiEnabled]);
+  }, [ghostText, debounceInlineSuggest]);
 
   const applyGhostText = useCallback((text, position) => {
     if (!editorRef.current || !monacoRef.current) return;
 
-    // Clear previous decorations
-    const model = editorRef.current.getModel();
-    const decorations = model.getAllDecorations().map(d => d.id);
-    editorRef.current.deltaDecorations(decorations, []);
+    // Clear previous decorations first
+    editorRef.current.deltaDecorations(
+      editorRef.current
+        .getModel()
+        .getAllDecorations()
+        .map((d) => d.id),
+      []
+    );
 
     // Apply new ghost text decoration
-    editorRef.current.deltaDecorations([], [
-      {
-        range: new monacoRef.current.Range(
-          position.lineNumber,
-          position.column,
-          position.lineNumber,
-          position.column
-        ),
-        options: {
-          after: {
-            contentText: text,
-            inlineClassName: "ghost-text",
+    editorRef.current.deltaDecorations(
+      [],
+      [
+        {
+          range: new monacoRef.current.Range(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column
+          ),
+          options: {
+            after: {
+              contentText: text,
+              inlineClassName: "ghost-text",
+            },
+            showIfCollapsed: true,
           },
-          showIfCollapsed: true,
         },
-      },
-    ]);
+      ]
+    );
   }, []);
 
-  const handleChange = useCallback((value) => {
-    setCode(value || "");
+  const handleChange = useCallback(
+    (value) => {
+      setCode(value || "");
 
-    if (ghostText) {
-      setGhostText("");
-    }
-
-    if (editorRef.current && aiEnabled && value) {
-      const position = editorRef.current.getPosition();
-      if (position) {
-        debounceInlineSuggest(value, position);
+      // Clear ghost text when user types
+      if (ghostText) {
+        setGhostText("");
       }
-    }
-  }, [ghostText, aiEnabled, debounceInlineSuggest]);
+
+      // Only trigger AI suggestion if AI is enabled and editor is ready
+      if (editorRef.current && Ai && value) {
+        const position = editorRef.current.getPosition();
+        if (position) {
+          console.log("Code changed, triggering AI suggestion");
+          debounceInlineSuggest(value, position);
+        }
+      }
+    },
+    [ghostText, Ai, debounceInlineSuggest]
+  );
 
   // Cleanup on unmount
   useEffect(() => {
@@ -398,14 +467,14 @@ const CodeEditor = () => {
     };
   }, []);
 
-  const downloadCode = useCallback(() => {
+  const downloadCode = () => {
     const file = new Blob([code], { type: "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(file);
     a.download = `code.${getFileExtension(language)}`;
     a.click();
     URL.revokeObjectURL(a.href);
-  }, [code, language]);
+  };
 
   const getFileExtension = (lang) => {
     const extensions = {
@@ -414,12 +483,6 @@ const CodeEditor = () => {
       python: "py",
       cpp: "cpp",
       java: "java",
-      c: "c",
-      csharp: "cs",
-      php: "php",
-      ruby: "rb",
-      go: "go",
-      rust: "rs",
     };
     return extensions[lang] || "txt";
   };
@@ -463,6 +526,9 @@ const CodeEditor = () => {
       }
     } else {
       // JavaScript execution
+      setIsRunning(true);
+      setOutput("🚀 Running code...");
+
       try {
         const log = [];
         const originalLog = console.log;
@@ -471,11 +537,11 @@ const CodeEditor = () => {
         console.log = (...args) => log.push("📝 " + args.join(" "));
         console.error = (...args) => log.push("❌ " + args.join(" "));
 
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Add a small delay to show the running state
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
-        // Create a safe execution context
-        const func = new Function(code);
-        func();
+        // eslint-disable-next-line no-eval
+        eval(code);
 
         setOutput(
           log.length > 0
@@ -493,33 +559,26 @@ const CodeEditor = () => {
     }
   };
 
-  // Placeholder functions for missing methods
-  const copyCode = useCallback(() => {
+  const copyCode = () => {
     navigator.clipboard.writeText(code);
-    alert("Code copied to clipboard!");
-  }, [code]);
+    setOutput("📋 Code copied to clipboard!");
+  };
 
-  // const findAndReplace = useCallback(() => {
-  //   if (editorRef.current) {
-  //     editorRef.current.getAction('actions.find').run();
-  //   }
-  // }, []);
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+  };
 
-  const undoAction = useCallback(() => {
+  const undoAction = () => {
     if (editorRef.current) {
-      editorRef.current.trigger('keyboard', 'undo', null);
+      editorRef.current.trigger("keyboard", "undo", null);
     }
-  }, []);
+  };
 
-  const redoAction = useCallback(() => {
+  const redoAction = () => {
     if (editorRef.current) {
-      editorRef.current.trigger('keyboard', 'redo', null);
+      editorRef.current.trigger("keyboard", "redo", null);
     }
-  }, []);
-
-  const toggleFullscreen = useCallback(() => {
-    setIsFullscreen(prev => !prev);
-  }, []);
+  };
 
   const findAndReplace = () => {
     if (editorRef.current) {
@@ -582,9 +641,6 @@ const CodeEditor = () => {
                     <FaPlay />
                     <span>{isRunning ? "Running..." : "Run Code"}</span>
                   </button>
-                  {/* {language !== "javascript" && (
-                    <CodeRunner/>
-                  )} */}
 
                   <button
                     onClick={saveCode}
@@ -642,7 +698,7 @@ const CodeEditor = () => {
                     <span>Redo</span>
                   </button>
 
-                  <Dictaphone setCode={setCode} />
+                  {apikey && <Dictaphone setCode={setCode} apikey={apikey} setOutput={setOutput} language={language} />}
 
                   <button
                     onClick={toggleFullscreen}
@@ -772,6 +828,7 @@ const CodeEditor = () => {
               Code{"</"}HaCk{"\\>"}
             </h1>
           </div>
+      
 
           <div className="flex items-center space-x-2">
             <div
@@ -865,22 +922,37 @@ const CodeEditor = () => {
               <label className="flex items-center space-x-2">
                 <input
                   type="checkbox"
-                  checked={aiEnabled}
-                  onChange={(e) => setAiEnabled(e.target.checked)}
+                  checked={Ai}
+                  onChange={(e) => 
+                  applyAi()
+                    }
                   className="rounded"
                 />
                 <span>Ai</span>
               </label>
               <div className="col-span-2  ">
                 <label className="flex items-center space-x-2">LLM Model</label>
-                <select className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:border-gray-700 dark:text-white"></select>
+                <select className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                  value={model}
+                  onChange={(e) => {
+                    setmodel(e.target.value);    
+                  }}
+                  >
+                  {models.map((model) => (
+                    <option key={model.value} value={model.value}>    
+                      {model.icon} {model.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <label className="flex items-center space-x-2">
                 <input
                   type="text"
-                  value={apiKey}
-                  onChange={(e) => setkey(e.target.value)}
+                  value={apikey}
+                  onChange={(e) =>{ setApikey(e.target.value);
+                    localStorage.setItem("apiKey",(e.target.value));
+                  }}
                   className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue
                   dark:bg-gray-800 dark:border-gray-700 dark:text-white"
                   placeholder="Enter your OpenRouter API Key"
@@ -916,7 +988,7 @@ const CodeEditor = () => {
             height={isFullscreen ? "calc(100vh - 140px)" : "67vh"}
             theme={theme}
             language={language}
-             value={code}
+            value={code}
             onChange={(value) => {
               handleChange(value);
             }}
